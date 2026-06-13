@@ -10,6 +10,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # ── Lint + Compile Check ──────────────────────────────────────────────────
@@ -22,6 +23,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+          cache: false
 
       - name: Lint mqtt-reader
         run: |
@@ -41,7 +43,7 @@ jobs:
       - name: Build web-ui
         run: |
           cd web-ui
-          CGO_ENABLED=0 go build -o /dev/null . 2>/dev/null || echo "build issues — continuing"
+          CGO_ENABLED=0 go build -o /dev/null .
 
   # ── Multi-arch Docker Build & Push ────────────────────────────────────────
   build:
@@ -98,7 +100,7 @@ jobs:
           echo "tags=$TAGS" >> $GITHUB_OUTPUT
 
       - name: Build and push Docker images
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           platforms: linux/amd64,linux/arm64
@@ -116,7 +118,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Start services
+      - name: Start InfluxDB for testing
         run: |
           docker run -d --name influxdb-test --network host \
             -e INFLUXDB_DB=iiot \
@@ -125,7 +127,7 @@ jobs:
           sleep 5
           curl -sf http://localhost:8086/ping && echo "InfluxDB ready"
 
-      - name: Build and run MQTT reader
+      - name: Build mqtt-reader
         run: |
           cd mqtt-reader
           CGO_ENABLED=0 go build -o mqtt-reader .

@@ -60,7 +60,7 @@ jobs:
             ```
 
             ---
-            🤖 Generated with [Claude Code](https://claude.com/claude-code)
+            Built with ❤️ for the Industrial IoT community.
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
         env:

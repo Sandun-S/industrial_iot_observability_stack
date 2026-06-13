@@ -1,20 +1,20 @@
 // Industrial IoT Observability Stack — Web UI Backend
 //
-// Provides a REST API for managing MQTT reader configs, querying InfluxDB,
-// and managing Grafana dashboards. Serves an embedded static frontend.
+// REST API + embedded static frontend for managing the IIoT stack.
+// Everything is managed from the browser — no SSH needed.
 //
 // Env vars:
-//
-//	PORT           — HTTP port (default: 8080)
-//	INFLUX_URL     — InfluxDB v1 URL (default: http://influxdb:8086)
-//	INFLUX_DB      — InfluxDB database name (default: iiot)
-//	GRAFANA_URL    — Grafana URL (default: http://grafana:3000)
-//	GRAFANA_SERVICE_ACCOUNT_TOKEN — optional Grafana API token
-//	CONFIG_DIR     — Reader YAML config directory (default: /configs)
+//   PORT           — HTTP port (default: 8080)
+//   INFLUX_URL     — InfluxDB v1 URL (default: http://influxdb:8086)
+//   INFLUX_DB      — InfluxDB database name (default: iiot)
+//   GRAFANA_URL    — Grafana URL (default: http://grafana:3000)
+//   CONFIG_DIR     — Reader YAML config directory (default: /configs)
+
 package main
 
 import (
 	"embed"
+	"encoding/json"
 	"io/fs"
 	"log"
 	"net/http"
@@ -37,48 +37,31 @@ func main() {
 	log.Printf("Grafana:    %s", cfg.GrafanaURL)
 	log.Printf("Config Dir: %s", cfg.ConfigDir)
 
-	// ── Ensure config directory exists ─────────────────────────────────────
-	if err := os.MkdirAll(cfg.ConfigDir, 0755); err != nil {
-		log.Printf("WARNING: failed to create config dir %s: %v", cfg.ConfigDir, err)
-	}
+	os.MkdirAll(cfg.ConfigDir, 0755)
 
-	// ── Setup handlers ─────────────────────────────────────────────────────
+	// ── Handlers ──────────────────────────────────────────────────────────
 	influxHandler := handlers.NewInfluxHandler(cfg.InfluxURL, cfg.InfluxDB)
 	grafanaHandler := handlers.NewGrafanaHandler(cfg.GrafanaURL, cfg.GrafanaToken)
+	readersHandler := handlers.NewReadersHandler(cfg.ConfigDir)
 
 	mux := http.NewServeMux()
 
-	// ── API Routes ─────────────────────────────────────────────────────────
-	// Health
+	// Health & Status
 	mux.HandleFunc("/api/health", handlers.HealthHandler())
 	mux.HandleFunc("/api/status", handlers.StatusHandler(influxHandler, grafanaHandler))
 
-	// Readers
-	mux.HandleFunc("/api/readers", handlers.ReadersHandler(cfg.ConfigDir))
+	// Reader management — full CRUD
+	mux.Handle("/api/readers", readersHandler)
+	mux.Handle("/api/readers/", readersHandler)
 
-	// Sensors (within a reader)
-	mux.HandleFunc("/api/readers/", func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		if strings.HasSuffix(path, "/sensors") {
-			if r.Method == http.MethodPost {
-				handlers.AddSensorHandler(cfg.ConfigDir)(w, r)
-			} else {
-				handlers.SensorsHandler(cfg.ConfigDir)(w, r)
-			}
-			return
-		}
-		// TODO: individual reader CRUD
-		respond404(w)
-	})
-
-	// InfluxDB
+	// InfluxDB proxy
 	mux.HandleFunc("/api/influx/health", influxHandler.Health())
 	mux.HandleFunc("/api/influx/measurements", influxHandler.Measurements())
 	mux.HandleFunc("/api/influx/query", influxHandler.Query())
 	mux.HandleFunc("/api/influx/latest", influxHandler.LatestData())
 	mux.HandleFunc("/api/influx/tags", influxHandler.TagValues())
 
-	// Grafana
+	// Grafana dashboard management
 	mux.HandleFunc("/api/grafana/health", grafanaHandler.Health())
 	mux.HandleFunc("/api/grafana/dashboards", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -94,45 +77,57 @@ func main() {
 	})
 	mux.HandleFunc("/api/grafana/datasource", grafanaHandler.EnsureDatasource())
 
-	// ── Static files (embedded) ────────────────────────────────────────────
+	// Docker service info (read-only via Docker socket)
+	mux.HandleFunc("/api/services", func(w http.ResponseWriter, r *http.Request) {
+		respondJSON(w, http.StatusOK, map[string]string{
+			"message": "Service management is available via the Docker socket.",
+			"hint":    "Use 'docker service ls' on the host or check the status endpoint.",
+		})
+	})
+
+	// ── Static files (embedded frontend) ───────────────────────────────────
 	staticSub, _ := fs.Sub(staticFS, "static")
 	fileServer := http.FileServer(http.FS(staticSub))
 	mux.Handle("/", fileServer)
 
-	// ── CORS middleware ────────────────────────────────────────────────────
+	// ── Start ──────────────────────────────────────────────────────────────
 	handler := corsMiddleware(mux)
-
-	// ── Start server ───────────────────────────────────────────────────────
-	log.Printf("Starting server on :%s", cfg.Port)
+	log.Printf("Listening on :%s", cfg.Port)
 	if err := http.ListenAndServe(":"+cfg.Port, handler); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }
 
-// corsMiddleware adds permissive CORS headers for local/homelab use.
+// ── Middleware ──────────────────────────────────────────────────────────────
+
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-
 		next.ServeHTTP(w, r)
 	})
 }
 
-func respond404(w http.ResponseWriter) {
+// ── Response helpers ────────────────────────────────────────────────────────
+
+func respondJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusNotFound)
-	w.Write([]byte(`{"error":"Not Found"}`))
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
 }
 
 func respondMethodNotAllowed(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusMethodNotAllowed)
 	w.Write([]byte(`{"error":"Method Not Allowed"}`))
+}
+
+// stripPrefix helps with prefix-based routing
+func stripPrefix(p, s string) string {
+	return strings.TrimPrefix(s, p)
 }
