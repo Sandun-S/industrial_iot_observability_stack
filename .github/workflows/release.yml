@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get the previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            # No previous tag — list all commits
+            CHANGES=$(git log --oneline --no-decorate ${{ github.ref_name }})
+          else
+            CHANGES=$(git log --oneline --no-decorate ${PREV_TAG}..${{ github.ref_name }})
+          fi
+          # Write changelog to file to avoid escaping issues
+          echo "$CHANGES" > /tmp/changelog.txt
+          echo "CHANGES<<EOF" >> $GITHUB_OUTPUT
+          cat /tmp/changelog.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ github.ref_name }}
+          body: |
+            ## Changes in ${{ github.ref_name }}
+
+            ```
+            ${{ steps.changelog.outputs.CHANGES }}
+            ```
+
+            ## Docker Images
+
+            - `ghcr.io/${{ github.repository }}/mqtt-reader:${{ github.ref_name }}`
+            - `ghcr.io/${{ github.repository }}/web-ui:${{ github.ref_name }}`
+
+            ## Deploy
+
+            ```bash
+            git clone https://github.com/${{ github.repository_owner }}/industrial-iot-observability-stack-deploy.git
+            cd industrial-iot-observability-stack-deploy
+            ./scripts/setup.sh
+            ```
+
+            ---
+            🤖 Generated with [Claude Code](https://claude.com/claude-code)
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

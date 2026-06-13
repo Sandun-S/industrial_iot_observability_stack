@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IIoT Observability Stack</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <nav id="sidebar">
+      <div class="sidebar-header">
+        <h2>⚙️ IIoT Stack</h2>
+        <span class="version">v0.1.0</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="#dashboard" class="nav-link" data-page="dashboard">📊 Dashboard</a></li>
+        <li><a href="#readers" class="nav-link" data-page="readers">📡 MQTT Readers</a></li>
+        <li><a href="#sensors" class="nav-link" data-page="sensors">🔍 Sensors</a></li>
+        <li><a href="#grafana" class="nav-link" data-page="grafana">📈 Grafana</a></li>
+        <li><a href="#settings" class="nav-link" data-page="settings">⚡ Settings</a></li>
+      </ul>
+      <div class="sidebar-footer">
+        <a href="https://github.com/Sandun-S/industrial-iot-observability-stack" target="_blank">GitHub ↗</a>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main id="main-content">
+      <div id="page-container">
+        <div id="page-loading" class="loading">Loading...</div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>
