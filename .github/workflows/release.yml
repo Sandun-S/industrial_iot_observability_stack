@@ -50,17 +50,15 @@ jobs:
 
             - `ghcr.io/${{ github.repository }}/mqtt-reader:${{ github.ref_name }}`
             - `ghcr.io/${{ github.repository }}/web-ui:${{ github.ref_name }}`
+            - `ghcr.io/${{ github.repository }}/to-postgres:${{ github.ref_name }}`
 
             ## Deploy
 
             ```bash
-            git clone https://github.com/${{ github.repository_owner }}/industrial-iot-observability-stack-deploy.git
-            cd industrial-iot-observability-stack-deploy
+            git clone https://github.com/${{ github.repository_owner }}/industrial_iot_observability_stack_deploy.git
+            cd industrial_iot_observability_stack_deploy
             ./scripts/setup.sh
             ```
-
-            ---
-            Built with ❤️ for the Industrial IoT community.
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
         env:
