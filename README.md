@@ -2,7 +2,7 @@
 
 **MQTT → InfluxDB → Grafana** — Open source IoT observability for homelab and industrial environments.
 
-[![Build and Push](https://github.com/Sandun-S/industrial-iot-observability-stack/actions/workflows/build-push.yml/badge.svg)](https://github.com/Sandun-S/industrial-iot-observability-stack/actions/workflows/build-push.yml)
+[![Build and Push](https://github.com/Sandun-S/industrial_iot_observability_stack/actions/workflows/build-push.yml/badge.svg)](https://github.com/Sandun-S/industrial_iot_observability_stack/actions/workflows/build-push.yml)
 
 ## Overview
 
@@ -23,11 +23,11 @@ MQTT Broker → MQTT Reader (Go) → InfluxDB v1 → Grafana
 
 ## Quick Start
 
-See the [deploy repository](https://github.com/Sandun-S/industrial-iot-observability-stack-deploy) for one-command setup:
+See the [deploy repository](https://github.com/Sandun-S/industrial_iot_observability_stack_deploy) for one-command setup:
 
 ```bash
-git clone https://github.com/Sandun-S/industrial-iot-observability-stack-deploy.git
-cd industrial-iot-observability-stack-deploy
+git clone https://github.com/Sandun-S/industrial_iot_observability_stack_deploy.git
+cd industrial_iot_observability_stack_deploy
 ./scripts/setup.sh
 ```
 
@@ -67,8 +67,8 @@ cd industrial-iot-observability-stack-deploy
 
 ```bash
 # Clone and start everything (Mosquitto + InfluxDB + Grafana + MQTT Reader + Web UI)
-git clone https://github.com/Sandun-S/industrial-iot-observability-stack.git
-cd industrial-iot-observability-stack
+git clone https://github.com/Sandun-S/industrial_iot_observability_stack.git
+cd industrial_iot_observability_stack
 ./scripts/local-dev.sh up
 ```
 
