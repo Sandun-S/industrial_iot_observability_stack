@@ -53,6 +53,8 @@ func (h *ReadersHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.list(w, r)
 	case path == "" && r.Method == http.MethodPost:
 		h.create(w, r)
+	case isSensorDelete(path) && r.Method == http.MethodDelete:
+		h.deleteSensor(w, r, path)
 	case strings.HasSuffix(path, "/sensors") && r.Method == http.MethodGet:
 		h.listSensors(w, r, strings.TrimSuffix(path, "/sensors"))
 	case strings.HasSuffix(path, "/sensors") && r.Method == http.MethodPost:
@@ -68,7 +70,13 @@ func (h *ReadersHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ── Operations ──────────────────────────────────────────────────────────────
+// isSensorDelete checks if path has format "readername/sensors/sensorname"
+func isSensorDelete(path string) bool {
+	parts := strings.SplitN(path, "/", 3)
+	return len(parts) == 3 && parts[1] == "sensors" && parts[2] != ""
+}
+
+// ── Reader Operations ───────────────────────────────────────────────────────
 
 func (h *ReadersHandler) list(w http.ResponseWriter, r *http.Request) {
 	entries, err := os.ReadDir(h.ConfigDir)
@@ -96,9 +104,15 @@ func (h *ReadersHandler) list(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			var cfg readerYAML
 			if yaml.Unmarshal(data, &cfg) == nil {
-				if n, ok := cfg.Reader["name"].(string); ok { item.Name = n }
-				if d, ok := cfg.Reader["description"].(string); ok { item.Description = d }
-				if b, ok := cfg.MQTT["broker"].(string); ok { item.Broker = b }
+				if n, ok := cfg.Reader["name"].(string); ok {
+					item.Name = n
+				}
+				if d, ok := cfg.Reader["description"].(string); ok {
+					item.Description = d
+				}
+				if b, ok := cfg.MQTT["broker"].(string); ok {
+					item.Broker = b
+				}
 				item.Sensors = len(cfg.Sensors)
 			}
 		}
@@ -129,17 +143,14 @@ func (h *ReadersHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate safe filename
 	filename := sanitizeFilename(req.Name) + ".yaml"
 	filePath := h.ConfigDir + "/" + filename
 
-	// Check if already exists
 	if _, err := os.Stat(filePath); err == nil {
 		respondError(w, http.StatusConflict, "reader '"+req.Name+"' already exists")
 		return
 	}
 
-	// Build YAML config from request
 	cfg := readerYAML{
 		Reader: map[string]any{
 			"name":        req.Name,
@@ -175,7 +186,7 @@ func (h *ReadersHandler) create(w http.ResponseWriter, r *http.Request) {
 		"message":     "reader created",
 		"name":        req.Name,
 		"config_file": filename,
-		"hint":        "Redeploy the stack or restart the reader service to apply changes.",
+		"hint":        "Restart the stack to apply: docker compose restart mqtt-reader",
 	})
 }
 
@@ -212,19 +223,19 @@ func (h *ReadersHandler) delete(w http.ResponseWriter, r *http.Request, name str
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{
-		"message": "reader deleted — remove the corresponding Docker service if deployed",
+		"message": "reader deleted — restart stack to remove the Docker service",
 		"name":    name,
 	})
 }
 
 func (h *ReadersHandler) restart(w http.ResponseWriter, r *http.Request, name string) {
 	respondJSON(w, http.StatusOK, map[string]string{
-		"message": "To restart, redeploy the stack: ./scripts/deploy.sh or docker service update --force iiot_mqtt-reader-" + sanitizeFilename(name),
+		"message": "docker compose restart mqtt-reader-" + sanitizeFilename(name),
 		"name":    name,
 	})
 }
 
-// ── Sensors ─────────────────────────────────────────────────────────────────
+// ── Sensor Operations ───────────────────────────────────────────────────────
 
 func (h *ReadersHandler) listSensors(w http.ResponseWriter, r *http.Request, name string) {
 	cfg, _, err := h.findConfig(name)
@@ -253,7 +264,6 @@ func (h *ReadersHandler) addSensor(w http.ResponseWriter, r *http.Request, name 
 		return
 	}
 
-	// Validate required fields
 	if s, _ := sensor["name"].(string); s == "" {
 		respondError(w, http.StatusBadRequest, "sensor.name is required")
 		return
@@ -277,6 +287,53 @@ func (h *ReadersHandler) addSensor(w http.ResponseWriter, r *http.Request, name 
 	respondJSON(w, http.StatusCreated, map[string]string{
 		"message": "sensor added — restart reader to apply",
 		"reader":  name,
+	})
+}
+
+func (h *ReadersHandler) deleteSensor(w http.ResponseWriter, r *http.Request, path string) {
+	// path format: "readername/sensors/sensorname"
+	parts := strings.SplitN(path, "/", 3)
+	readerName := parts[0]
+	sensorName := parts[2]
+	// URL decode
+	sensorName = urlDecode(sensorName)
+	readerName = urlDecode(readerName)
+
+	cfg, filename, err := h.findConfig(readerName)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "reader not found: "+readerName)
+		return
+	}
+
+	// Find and remove the sensor by name
+	var newSensors []any
+	found := false
+	for _, s := range cfg.Sensors {
+		if sm, ok := s.(map[string]any); ok {
+			if sn, _ := sm["name"].(string); sn == sensorName {
+				found = true
+				continue
+			}
+		}
+		newSensors = append(newSensors, s)
+	}
+
+	if !found {
+		respondError(w, http.StatusNotFound, "sensor not found: "+sensorName)
+		return
+	}
+
+	cfg.Sensors = newSensors
+
+	if err := h.saveConfig(filename, cfg); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to save: "+err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{
+		"message": "sensor deleted — restart reader to apply",
+		"reader":  readerName,
+		"sensor":  sensorName,
 	})
 }
 
@@ -304,7 +361,6 @@ func (h *ReadersHandler) findConfig(name string) (*readerYAML, string, error) {
 		}
 	}
 
-	// Try scanning all YAML files for matching reader name
 	entries, _ := os.ReadDir(h.ConfigDir)
 	for _, e := range entries {
 		if e.IsDir() || (!strings.HasSuffix(e.Name(), ".yaml") && !strings.HasSuffix(e.Name(), ".yml")) {
@@ -339,7 +395,6 @@ func (h *ReadersHandler) saveConfig(filename string, cfg *readerYAML) error {
 func sanitizeFilename(s string) string {
 	s = strings.ToLower(s)
 	s = strings.ReplaceAll(s, " ", "-")
-	// Remove characters that are problematic in filenames
 	result := ""
 	for _, c := range s {
 		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
@@ -353,15 +408,25 @@ func sanitizeFilename(s string) string {
 }
 
 func firstNonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
+	if a != "" { return a }
 	return b
 }
 
 func firstNonEmptyByte(a, b byte) byte {
-	if a != 0 {
-		return a
-	}
+	if a != 0 { return a }
 	return b
+}
+
+func urlDecode(s string) string {
+	// Simple URL decode — handles %20 etc.
+	result := s
+	for _, pair := range []struct{ enc, dec string }{
+		{"%20", " "}, {"%21", "!"}, {"%22", `"`}, {"%23", "#"},
+		{"%24", "$"}, {"%25", "%"}, {"%26", "&"}, {"%27", "'"},
+		{"%2C", ","}, {"%2F", "/"}, {"%3A", ":"}, {"%3B", ";"},
+		{"%3D", "="}, {"%3F", "?"}, {"%40", "@"},
+	} {
+		result = strings.ReplaceAll(result, pair.enc, pair.dec)
+	}
+	return result
 }

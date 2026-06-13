@@ -66,10 +66,10 @@ func (h *GrafanaHandler) ListDashboards() http.HandlerFunc {
 func (h *GrafanaHandler) CreateDashboard() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Title        string   `json:"title"`
-			Measurements []string `json:"measurements"`
-			Fields       []string `json:"fields,omitempty"`
-			Tags         []string `json:"tags,omitempty"`
+			Title        string               `json:"title"`
+			Measurement  string               `json:"measurement"`
+			Devices      []grafana.DeviceGroup `json:"devices"`
+			GrafanaToken string               `json:"grafana_token,omitempty"`
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -77,24 +77,34 @@ func (h *GrafanaHandler) CreateDashboard() http.HandlerFunc {
 			return
 		}
 
-		if len(req.Measurements) == 0 {
-			respondError(w, http.StatusBadRequest, "at least one measurement is required")
+		if req.Measurement == "" {
+			respondError(w, http.StatusBadRequest, "measurement is required")
+			return
+		}
+
+		// Use token from request, or service token from env, or error
+		token := req.GrafanaToken
+		if token == "" {
+			token = h.ServiceToken
+		}
+		if token == "" {
+			respondError(w, http.StatusForbidden, "Grafana service account token required. Get one in Grafana: Administration → Users and access → Service accounts → Add service account → Admin role → Add token. Then paste it in Web UI Settings.")
 			return
 		}
 
 		if req.Title == "" {
-			req.Title = "IIoT: " + strings.Join(req.Measurements, ", ")
+			req.Title = "IIoT: " + req.Measurement
 		}
 
-		dashboard := grafana.GenerateDashboard(req.Title, req.Measurements, req.Fields, req.Tags)
+		dashboard := grafana.GenerateDashboard(req.Title, req.Measurement, req.Devices)
 		dashboardJSON, err := json.Marshal(dashboard)
 		if err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to marshal dashboard: "+err.Error())
 			return
 		}
 
-		// Create dashboard via Grafana API
-		result, err := h.grafanaPost("/api/dashboards/db", dashboard)
+		// Create dashboard via Grafana API with token
+		result, err := h.grafanaPostWithToken("/api/dashboards/db", dashboard, token)
 		if err != nil {
 			respondError(w, http.StatusBadGateway, "failed to create dashboard: "+err.Error())
 			return
@@ -193,6 +203,21 @@ func (h *GrafanaHandler) grafanaGet(path string) (any, error) {
 	return h.doGrafanaRequest(req)
 }
 
+func (h *GrafanaHandler) grafanaPostWithToken(path string, body any, token string) (any, error) {
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", h.GrafanaURL+path, bytes.NewReader(bodyJSON))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	return h.doGrafanaRequestDirect(req)
+}
+
 func (h *GrafanaHandler) grafanaPost(path string, body any) (any, error) {
 	bodyJSON, err := json.Marshal(body)
 	if err != nil {
@@ -214,6 +239,29 @@ func (h *GrafanaHandler) grafanaDelete(path string) error {
 	}
 	_, err = h.doGrafanaRequest(req)
 	return err
+}
+
+func (h *GrafanaHandler) doGrafanaRequestDirect(req *http.Request) (any, error) {
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("grafana returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result any
+	if err := json.Unmarshal(body, &result); err != nil {
+		return string(body), nil
+	}
+	return result, nil
 }
 
 func (h *GrafanaHandler) doGrafanaRequest(req *http.Request) (any, error) {

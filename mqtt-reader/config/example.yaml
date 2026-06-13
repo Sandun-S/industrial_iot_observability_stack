@@ -1,104 +1,107 @@
-# MQTT Reader — Example Configuration
-#
-# This is a sample config for the Industrial IoT Observability Stack MQTT Reader.
-# Copy this file and modify it for your MQTT broker and sensors.
-#
-# Each reader handles ONE MQTT broker. For multiple brokers, deploy separate
-# reader containers with their own config files.
-
 reader:
-  name: "example-reader"
-  description: "Example MQTT reader for temperature and humidity sensors"
-
+  name: example-reader
+  description: Example MQTT reader for temperature and humidity sensors
 mqtt:
-  broker: "tcp://mosquitto:1883"    # MQTT broker URL
-  client_id: "iiot-example-01"       # MQTT client identifier (auto-generated if empty)
-  qos: 1                             # Quality of Service: 0, 1, or 2
-  username: ""                       # optional MQTT username
-  password: ""                       # optional MQTT password
-  reconnect_delay: 10                # seconds between reconnection attempts
-
+  broker: tcp://mosquitto:1883
+  client_id: iiot-example-01
+  qos: 1
+  username: ''
+  password: ''
+  reconnect_delay: 10
 influxdb:
-  url: "http://influxdb:8086"        # InfluxDB v1 HTTP API
-  database: "iiot"                   # InfluxDB database name
-  username: ""                       # optional InfluxDB username
-  password: ""                       # optional InfluxDB password
-
+  url: http://influxdb:8086
+  database: iiot
+  username: ''
+  password: ''
 sensors:
-  # ── Example 1: Simple JSON sensor with one field ─────────────────────────
-  - name: "Server Room Temperature"
-    topic: "sensors/server-room/temperature"
-    measurement: "environment"
-    fields:
-      - key: "temperature_c"
-        json_path: "temperature"     # GJSON path expression
-        type: float
-        unit: "°C"
-    tags:
-      location: "server-room"
-      building: "main"
-
-  # ── Example 2: JSON sensor with multiple fields from one topic ───────────
-  - name: "HVAC Unit 1"
-    topic: "hvac/unit-01/status"
-    measurement: "hvac"
-    fields:
-      - key: "supply_temp_c"
-        json_path: "supply_air.temperature"
-        type: float
-        unit: "°C"
-      - key: "return_temp_c"
-        json_path: "return_air.temperature"
-        type: float
-        unit: "°C"
-      - key: "fan_speed_pct"
-        json_path: "fan.speed_percent"
-        type: float
-        unit: "%"
-      - key: "filter_status"
-        json_path: "filter.status"
-        type: string
-    tags:
-      equipment: "hvac-01"
-      location: "rooftop"
-
-  # ── Example 3: CSV payload mapping ───────────────────────────────────────
-  - name: "Power Meter Main"
-    topic: "power/main-meter/values"
-    measurement: "power"
-    csv:
-      delimiter: ","
-      skip_header: false
-      columns:
-        - key: "voltage_v"
-          index: 0
-          type: float
-          unit: "V"
-        - key: "current_a"
-          index: 1
-          type: float
-          unit: "A"
-        - key: "power_w"
-          index: 2
-          type: float
-          unit: "W"
-        - key: "energy_kwh"
-          index: 3
-          type: float
-          unit: "kWh"
-    tags:
-      meter_id: "PM-001"
-      panel: "main"
-
-  # ── Example 4: Wildcard topic with dynamic tag extraction ────────────────
-  - name: "Multi-Sensor Array"
-    topic: "sensors/+/temperature"
-    measurement: "environment"
-    fields:
-      - key: "temperature_c"
-        json_path: "value"
-        type: float
-        unit: "°C"
-    tags:
-      sensor_id: "{{topic.1}}"      # extracts wildcard segment from topic
-      location: "warehouse"
+- name: Test Sensor
+  topic: iiot/test
+  measurement: environment
+  fields:
+  - key: value
+    json_path: value
+    type: float
+    unit: ''
+  tags:
+    location: test
+- name: Server Room Temperature
+  topic: sensors/server-room/temperature
+  measurement: environment
+  fields:
+  - key: temperature_c
+    json_path: temperature
+    type: float
+    unit: °C
+  tags:
+    location: server-room
+    building: main
+- name: HVAC Unit 1
+  topic: hvac/unit-01/status
+  measurement: hvac
+  fields:
+  - key: supply_temp_c
+    json_path: supply_temp
+    type: float
+    unit: °C
+  - key: return_temp_c
+    json_path: return_temp
+    type: float
+    unit: °C
+  - key: fan_speed_pct
+    json_path: fan_speed
+    type: float
+    unit: '%'
+  - key: filter_status
+    json_path: filter_status
+    type: string
+  tags:
+    equipment: hvac-01
+    location: rooftop
+- name: Server Room Humidity
+  topic: sensors/server-room/humidity
+  measurement: environment
+  fields:
+  - key: humidity_pct
+    json_path: humidity
+    type: float
+    unit: '%'
+  tags:
+    location: server-room
+    building: main
+- name: Power Meter Main
+  topic: power/main-meter/values
+  measurement: power
+  csv:
+    delimiter: ','
+    skip_header: false
+    columns:
+    - key: voltage_v
+      index: 0
+      type: float
+      unit: V
+    - key: current_a
+      index: 1
+      type: float
+      unit: A
+    - key: power_w
+      index: 2
+      type: float
+      unit: W
+    - key: energy_kwh
+      index: 3
+      type: float
+      unit: kWh
+  tags:
+    meter_id: PM-001
+    panel: main
+- name: Multi-Sensor Array
+  topic: sensors/+/temperature
+  measurement: environment
+  fields:
+  - key: temperature_c
+    json_path: temperature
+    type: float
+    unit: °C
+  tags:
+    sensor_id: '{{topic.1}}'
+    location: warehouse

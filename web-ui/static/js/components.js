@@ -87,7 +87,7 @@ const Components = {
   },
 
   closeModal() {
-    const overlay = document.getElementById('modal-overlay');
+    const overlay = document.querySelector('.modal-overlay');
     if (overlay) overlay.remove();
   },
 
@@ -175,4 +175,5 @@ const Components = {
   },
 };
 
+window.Components = Components;
 export default Components;

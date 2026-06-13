@@ -61,37 +61,84 @@ cd industrial-iot-observability-stack-deploy
 
 ### Prerequisites
 - Go 1.22+
-- Docker
+- Docker + Docker Compose
 
-### Build
+### Quick Start (full stack with one command)
+
+```bash
+# Clone and start everything (Mosquitto + InfluxDB + Grafana + MQTT Reader + Web UI)
+git clone https://github.com/Sandun-S/industrial-iot-observability-stack.git
+cd industrial-iot-observability-stack
+./scripts/local-dev.sh up
+```
+
+After ~30 seconds:
+- **Web UI** → http://localhost:8080
+- **Grafana** → http://localhost:3000 (admin/admin)
+- **InfluxDB** → http://localhost:8086
+- **MQTT** → localhost:1883
+
+All commands:
+```bash
+./scripts/local-dev.sh up       # Start full stack (build + deploy)
+./scripts/local-dev.sh stop     # Stop and remove everything
+./scripts/local-dev.sh restart  # Restart all services
+./scripts/local-dev.sh logs     # Tail all logs in real time
+./scripts/local-dev.sh test     # Publish test MQTT data to verify pipeline
+```
+
+### Build Individual Components
 
 ```bash
 # MQTT Reader
-cd mqtt-reader
-go mod tidy
-CGO_ENABLED=0 go build -o mqtt-reader .
+cd mqtt-reader && go mod tidy && CGO_ENABLED=0 go build -o mqtt-reader .
 
 # Web UI
-cd web-ui
-go mod tidy
-CGO_ENABLED=0 go build -o web-ui .
+cd web-ui && go mod tidy && CGO_ENABLED=0 go build -o web-ui .
 ```
 
-### Run Locally
+### Run Components Individually (outside Docker)
+
+When running outside Docker, use `localhost` instead of Docker service names:
 
 ```bash
-# Start InfluxDB for testing
-docker run -d --name influxdb-test -p 8086:8086 \
-  -e INFLUXDB_DB=iiot influxdb:1.8
+# Start dependencies via Docker
+docker run -d --name mqtt-test -p 1883:1883 eclipse-mosquitto:2
+docker run -d --name influxdb-test -p 8086:8086 -e INFLUXDB_DB=iiot influxdb:1.8
 
-# Run MQTT Reader (needs MQTT broker + config)
+# Run MQTT Reader with localhost config
 cd mqtt-reader
 CONFIG_PATH=config/example.yaml go run .
+# (edit config/example.yaml to use tcp://localhost:1883 and http://localhost:8086)
 
 # Run Web UI
 cd web-ui
 PORT=8080 INFLUX_URL=http://localhost:8086 go run .
 ```
+
+### Running the MQTT Simulator
+
+```bash
+pipx run --spec paho-mqtt python3 examples/mqtt-simulator.py --host localhost --interval 5
+# Or: pip install --break-system-packages paho-mqtt
+# Or: python3 -m venv .venv && source .venv/bin/activate && pip install paho-mqtt
+```
+
+### Grafana Service Account Token (optional)
+
+The Web UI can auto-create Grafana dashboards via the Grafana API. To enable this:
+
+1. Open Grafana → **Administration** → **Users and access** → **Service accounts** → **Add service account**
+2. Display name: `Admin role`, Role: **Admin**
+3. Click **Create** → **Add service account token** → **Generate token**
+4. Copy the token and set it in the Web UI Settings page, or via env var:
+
+```bash
+# In docker-compose.dev.yml or docker-compose.yml:
+GRAFANA_SERVICE_ACCOUNT_TOKEN: "glsa_your_token_here"
+```
+
+Without a token, the Web UI can still list dashboards (read-only via Grafana's anonymous access). The token is only needed for auto-creating dashboards.
 
 ## CI/CD
 

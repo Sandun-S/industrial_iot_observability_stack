@@ -1,0 +1,123 @@
+# Industrial IoT Observability Stack — Local Development
+#
+# Starts all services for local testing on a single machine.
+# No Swarm needed — plain Docker Compose.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d
+#   OR
+#   ./scripts/local-dev.sh
+
+version: "3.8"
+
+networks:
+  iiot-dev:
+    driver: bridge
+
+volumes:
+  influxdb-dev-data:
+  grafana-dev-data:
+
+services:
+  # ── MQTT Broker ─────────────────────────────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2
+    networks:
+      - iiot-dev
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+
+  # ── InfluxDB v1.8 ───────────────────────────────────────────────────────
+  influxdb:
+    image: influxdb:1.8
+    networks:
+      - iiot-dev
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb-dev-data:/var/lib/influxdb
+    environment:
+      INFLUXDB_DB: iiot
+      INFLUXDB_ADMIN_ENABLED: "true"
+      INFLUXDB_HTTP_AUTH_ENABLED: "false"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8086/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Grafana ─────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    networks:
+      - iiot-dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-dev-data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_SERVER_ROOT_URL: "http://localhost:3000"
+
+  # ── MQTT Reader ─────────────────────────────────────────────────────────
+  mqtt-reader:
+    build:
+      context: ./mqtt-reader
+      dockerfile: Dockerfile
+    networks:
+      - iiot-dev
+    volumes:
+      - ./mqtt-reader/config/example.yaml:/config/reader.yaml:ro
+    environment:
+      CONFIG_PATH: /config/reader.yaml
+      LOG_LEVEL: debug
+    depends_on:
+      influxdb:
+        condition: service_healthy
+
+  # ── Web UI ──────────────────────────────────────────────────────────────
+  web-ui:
+    build:
+      context: ./web-ui
+      dockerfile: Dockerfile
+    networks:
+      - iiot-dev
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./mqtt-reader/config:/configs:rw
+    environment:
+      PORT: "8080"
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_DB: iiot
+      GRAFANA_URL: http://grafana:3000
+      GRAFANA_SERVICE_ACCOUNT_TOKEN: ""
+      CONFIG_DIR: /configs
+    depends_on:
+      - influxdb
+      - grafana
+
+  # ── PostgreSQL Exporter (optional — enable via Web UI Settings) ────────
+  to-postgres:
+    build:
+      context: ./to-postgres
+      dockerfile: Dockerfile
+    networks:
+      - iiot-dev
+    ports:
+      - "8089:8089"
+    environment:
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_DB: iiot
+      POSTGRES_URL: ""
+      SYNC_INTERVAL: "60"
+      API_PORT: "8089"
+    depends_on:
+      - influxdb

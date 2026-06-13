@@ -92,12 +92,21 @@ func (h *InfluxHandler) LatestData() http.HandlerFunc {
 			var allResults []map[string]any
 			for _, m := range measurements {
 				results, err := h.queryInflux(fmt.Sprintf(
-					`SELECT * FROM "%s" ORDER BY time DESC LIMIT 1`, m))
+					`SELECT * FROM "%s" ORDER BY time DESC LIMIT 200`, m))
 				if err == nil && len(results) > 0 {
-					allResults = append(allResults, map[string]any{
-						"measurement": m,
-						"data":        results[0],
-					})
+					// Deduplicate: keep latest per (device, reading)
+					seen := map[string]bool{}
+					for _, r := range results {
+						device := fmt.Sprint(r["device"])
+						reading := fmt.Sprint(r["reading"])
+						key := m + "/" + device + "/" + reading
+						if seen[key] {
+							continue
+						}
+						seen[key] = true
+						r["measurement"] = m
+						allResults = append(allResults, r)
+					}
 				}
 			}
 			respondJSON(w, http.StatusOK, allResults)
@@ -105,7 +114,7 @@ func (h *InfluxHandler) LatestData() http.HandlerFunc {
 		}
 
 		result, err := h.queryInflux(fmt.Sprintf(
-			`SELECT * FROM "%s" ORDER BY time DESC LIMIT 20`, measurement))
+			`SELECT * FROM "%s" ORDER BY time DESC LIMIT 200`, measurement))
 		if err != nil {
 			respondError(w, http.StatusBadGateway, err.Error())
 			return
@@ -115,6 +124,7 @@ func (h *InfluxHandler) LatestData() http.HandlerFunc {
 }
 
 // TagValues returns tag values for a measurement and tag key.
+// Supports optional filter_key and filter_val for WHERE clause filtering.
 func (h *InfluxHandler) TagValues() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		measurement := r.URL.Query().Get("measurement")
@@ -124,8 +134,15 @@ func (h *InfluxHandler) TagValues() http.HandlerFunc {
 			return
 		}
 
-		result, err := h.queryInflux(fmt.Sprintf(
-			`SHOW TAG VALUES FROM "%s" WITH KEY = "%s"`, measurement, tagKey))
+		query := fmt.Sprintf(`SHOW TAG VALUES FROM "%s" WITH KEY = "%s"`, measurement, tagKey)
+		filterKey := r.URL.Query().Get("filter_key")
+		filterVal := r.URL.Query().Get("filter_val")
+		if filterKey != "" && filterVal != "" {
+			query = fmt.Sprintf(`SHOW TAG VALUES FROM "%s" WITH KEY = "%s" WHERE "%s" = '%s'`,
+				measurement, tagKey, filterKey, filterVal)
+		}
+
+		result, err := h.queryInflux(query)
 		if err != nil {
 			respondError(w, http.StatusBadGateway, err.Error())
 			return

@@ -61,6 +61,8 @@ jobs:
             context: ./mqtt-reader
           - name: web-ui
             context: ./web-ui
+          - name: to-postgres
+            context: ./to-postgres
 
     steps:
       - uses: actions/checkout@v4

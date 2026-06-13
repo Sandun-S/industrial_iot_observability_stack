@@ -1,0 +1,69 @@
+{
+  "dashboard": {
+    "title": "IIoT Overview",
+    "tags": ["iiot", "auto"],
+    "timezone": "browser",
+    "refresh": "10s",
+    "schemaVersion": 36,
+    "panels": [
+      {
+        "id": 1, "type": "row", "title": "Sensor Readings",
+        "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}
+      },
+      {
+        "id": 2, "type": "timeseries",
+        "title": "Readings ($measurement)",
+        "gridPos": {"h": 10, "w": 24, "x": 0, "y": 1},
+        "targets": [{
+          "refId": "A",
+          "datasource": {"type": "influxdb", "uid": "InfluxDB"},
+          "query": "SELECT * FROM \"$measurement\" WHERE $timeFilter",
+          "rawQuery": true, "resultFormat": "time_series"
+        }],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line", "lineInterpolation": "smooth",
+              "fillOpacity": 10, "showPoints": "auto"
+            }
+          }
+        }
+      },
+      {
+        "id": 3, "type": "stat",
+        "title": "Latest Values",
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 11},
+        "targets": [{
+          "refId": "A",
+          "datasource": {"type": "influxdb", "uid": "InfluxDB"},
+          "query": "SELECT * FROM \"$measurement\" ORDER BY time DESC LIMIT 1",
+          "rawQuery": true, "resultFormat": "time_series"
+        }],
+        "options": {"reduceOptions": {"values": false, "calcs": ["lastNotNull"]}}
+      },
+      {
+        "id": 4, "type": "table",
+        "title": "Recent Data",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 15},
+        "targets": [{
+          "refId": "A",
+          "datasource": {"type": "influxdb", "uid": "InfluxDB"},
+          "query": "SELECT * FROM \"$measurement\" ORDER BY time DESC LIMIT 100",
+          "rawQuery": true, "resultFormat": "table"
+        }]
+      }
+    ],
+    "templating": {
+      "list": [{
+        "name": "measurement",
+        "type": "query",
+        "datasource": {"type": "influxdb", "uid": "InfluxDB"},
+        "query": "SHOW MEASUREMENTS",
+        "refresh": 1, "multi": false, "includeAll": false,
+        "label": "Measurement",
+        "current": {"text": "environment", "value": "environment"}
+      }]
+    }
+  },
+  "overwrite": false
+}

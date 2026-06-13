@@ -9,6 +9,7 @@ import Components from '../components.js';
 const SettingsPage = {
   async render(container) {
     const currentGrafanaUrl = localStorage.getItem('iiot_grafana_url') || `${window.location.protocol}//${window.location.hostname}:3000`;
+    const currentGrafanaToken = localStorage.getItem('iiot_grafana_token') || '';
 
     container.innerHTML = `
       <div class="page-header">
@@ -26,8 +27,9 @@ const SettingsPage = {
           })}
           ${Components.field('Grafana Service Account Token', 'grafana_token', {
             type: 'password',
+            value: currentGrafanaToken,
             placeholder: 'Optional — for API dashboard creation',
-            help: 'Create in Grafana: Configuration → Service Accounts → Add service account → Admin role → Add token'
+            help: 'Create in Grafana: Administration → Service accounts → Add service account → Admin role → Add token'
           })}
         </form>
       </div>
@@ -67,6 +69,38 @@ const SettingsPage = {
       </div>
 
       <div class="card" style="margin-top: 16px;">
+        <div class="card-header">🗄️ PostgreSQL Exporter (to-postgres)</div>
+        <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+          Sync InfluxDB data to an external PostgreSQL/TimescaleDB. Set the connection URL and interval below.
+          Leave URL empty to disable.
+        </p>
+        <form id="exporter-form">
+          ${Components.field('Enable', 'enabled', {
+            type: 'select',
+            value: localStorage.getItem('iiot_export_enabled') || 'false',
+            options: [{value:'false',label:'Disabled'},{value:'true',label:'Enabled'}]
+          })}
+          ${Components.field('PostgreSQL URL', 'postgres_url', {
+            value: localStorage.getItem('iiot_export_postgres_url') || '',
+            placeholder: 'postgres://user:pass@host:5432/db?sslmode=disable',
+            help: 'Connection string for the target PostgreSQL/TimescaleDB'
+          })}
+          ${Components.field('Sync Interval (seconds)', 'sync_interval', {
+            value: localStorage.getItem('iiot_export_sync_interval') || '60',
+            placeholder: '60'
+          })}
+          ${Components.field('Site Label', 'site', {
+            value: localStorage.getItem('iiot_export_site') || 'default',
+            placeholder: 'default'
+          })}
+        </form>
+        <div style="margin-top: 8px;">
+          <button class="btn btn-primary" onclick="SettingsPage.saveExporter()">Save & Apply</button>
+          <span id="export-status" style="margin-left: 12px; font-size: 13px; color: var(--text-secondary);"></span>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 16px;">
         <div class="card-header">🛠️ System Info</div>
         <div id="sys-info"><div class="loading">Loading system info...</div></div>
       </div>
@@ -101,6 +135,32 @@ const SettingsPage = {
     }
   },
 
+  async saveExporter() {
+    const form = document.getElementById('exporter-form');
+    if (!form) return;
+    const data = Components.getFormData(form);
+    // Save to localStorage
+    localStorage.setItem('iiot_export_enabled', data.enabled);
+    localStorage.setItem('iiot_export_postgres_url', data.postgres_url);
+    localStorage.setItem('iiot_export_sync_interval', data.sync_interval);
+    localStorage.setItem('iiot_export_site', data.site);
+    // Send to exporter via backend proxy
+    const statusEl = document.getElementById('export-status');
+    try {
+      const resp = await API._post('/api/exporter/config', {
+        enabled: data.enabled === 'true',
+        postgres_url: data.postgres_url,
+        sync_interval: parseInt(data.sync_interval) || 60,
+        site: data.site || 'default',
+      });
+      statusEl.textContent = '✓ Saved & applied';
+      statusEl.style.color = 'var(--green)';
+    } catch (err) {
+      statusEl.textContent = '⚠ ' + err.message + ' (is to-postgres container running?)';
+      statusEl.style.color = 'var(--yellow)';
+    }
+  },
+
   saveSettings() {
     const form = document.getElementById('settings-form');
     if (form) {
@@ -116,8 +176,10 @@ const SettingsPage = {
       if (mqttData.default_qos) localStorage.setItem('iiot_default_qos', mqttData.default_qos);
     }
 
-    alert('Settings saved!');
+    // Also save exporter config
+    this.saveExporter();
   },
 };
 
+window.SettingsPage = SettingsPage;
 export default SettingsPage;

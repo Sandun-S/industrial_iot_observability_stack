@@ -51,11 +51,13 @@ const ReadersPage = {
         { key: 'status', label: 'Status', render: v => Components.statusDot(v, v) },
         {
           key: 'config_file', label: 'Actions',
-          render: (_, row) => `
-            <button class="btn btn-sm" onclick="window.location.hash='#sensors/${encodeURIComponent(row.name || row.config_file)}'">
-              🔍 Sensors
-            </button>
-          `,
+          render: (_, row) => {
+            const name = encodeURIComponent(row.name || row.config_file);
+            return `
+              <button class="btn btn-sm" onclick="window.location.hash='#sensors/${name}'">🔍 Sensors</button>
+              <button class="btn btn-sm" onclick="ReadersPage.deleteReader('${name}')" style="margin-left:4px;">🗑️</button>
+            `;
+          },
         },
       ]);
     } catch (err) {
@@ -99,6 +101,16 @@ const ReadersPage = {
     document.body.appendChild(overlay);
   },
 
+  async deleteReader(name) {
+    if (!confirm(`Delete reader "${decodeURIComponent(name)}"? This removes the config file.`)) return;
+    try {
+      await API._delete(`/api/readers/${name}`);
+      await ReadersPage.loadReaders();
+    } catch (err) {
+      alert(`Failed to delete: ${err.message}`);
+    }
+  },
+
   async submitAddReader() {
     const form = document.getElementById('add-reader-form');
     if (!form) return;
@@ -131,4 +143,5 @@ const ReadersPage = {
   },
 };
 
+window.ReadersPage = ReadersPage;
 export default ReadersPage;

@@ -55,12 +55,16 @@ const API = {
   tagValues(measurement, tag) {
     return this._get(`/api/influx/tags?measurement=${encodeURIComponent(measurement)}&tag=${encodeURIComponent(tag)}`);
   },
+  tagValuesFiltered(measurement, tag, filterKey, filterVal) {
+    return this._get(`/api/influx/tags?measurement=${encodeURIComponent(measurement)}&tag=${encodeURIComponent(tag)}&filter_key=${encodeURIComponent(filterKey)}&filter_val=${encodeURIComponent(filterVal)}`);
+  },
 
   // ── Grafana ──────────────────────────────────────────────────────────────
   grafanaHealth()         { return this._get('/api/grafana/health'); },
   listDashboards()        { return this._get('/api/grafana/dashboards'); },
-  createDashboard(title, measurements, fields, tags) {
-    return this._post('/api/grafana/dashboards', { title, measurements, fields, tags });
+  createDashboardForMeasurement(title, measurement, devices) {
+    const token = localStorage.getItem('iiot_grafana_token') || '';
+    return this._post('/api/grafana/dashboards', { title, measurement, devices, grafana_token: token });
   },
   deleteDashboard(uid)    { return this._delete(`/api/grafana/dashboards?uid=${encodeURIComponent(uid)}`); },
   ensureDatasource()      { return this._get('/api/grafana/datasource'); },

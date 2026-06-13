@@ -89,61 +89,30 @@ const DashboardPage = {
         return;
       }
 
-      // Build a flat table of latest readings
-      let rows = [];
-      for (const group of data) {
-        const measurement = group.measurement || 'unknown';
-        const points = group.data ? [group.data] : [];
-        // If group itself contains time/value fields
-        if (typeof group === 'object' && group.time) {
-          rows.push(group);
-        }
-        // Handle array-form results
-        if (Array.isArray(group)) {
-          rows = rows.concat(group);
-        }
-      }
-
-      // Try to extract readings from the influx response format
+      // Each row has the value stored under its field key (row[row.reading])
       const readings = [];
-      for (const item of data) {
-        if (item.data && item.data.time) {
-          const d = item.data;
-          const time = d.time;
-          for (const [key, val] of Object.entries(d)) {
-            if (key !== 'time' && key !== 'device' && key !== 'reading' && key !== 'reader' &&
-                key !== 'site' && typeof val === 'number') {
-              readings.push({
-                measurement: item.measurement,
-                device: d.device || '—',
-                reading: key,
-                value: typeof val === 'number' ? val.toFixed(2) : val,
-                time: time,
-              });
-            }
-          }
-        } else if (item.measurement && typeof item === 'object') {
-          // Direct from measurement list
+      for (const row of data) {
+        if (!row.time) continue;
+        const fieldKey = row.reading || 'value';
+        // Look up the actual value using the field key name
+        let val = row[fieldKey];
+        if (val === undefined || val === null) {
+          // Fallback: try common keys
+          val = row.value ?? row._value ?? null;
+        }
+        if (val !== undefined && val !== null) {
           readings.push({
-            measurement: item.measurement,
-            device: item.device || '—',
-            reading: item.reading || 'value',
-            value: item.value || '—',
-            time: item.time || item.logged_time,
+            measurement: row.measurement || '—',
+            device: row.device || '—',
+            reading: fieldKey,
+            value: typeof val === 'number' ? val.toFixed(2) : String(val),
+            time: row.time,
           });
         }
       }
 
-      if (readings.length === 0 && data.length > 0) {
-        el.innerHTML = `<p style="color: var(--text-secondary); padding: 24px; text-align: center;">
-          Data exists in InfluxDB but couldn't be parsed for display.
-          <br>Check <a href="#grafana" style="color: var(--accent);">Grafana</a> for full visualization.
-        </p>`;
-        return;
-      }
-
       if (readings.length === 0) {
-        el.innerHTML = '<p style="color: var(--text-secondary); padding: 24px; text-align: center;">No readings found.</p>';
+        el.innerHTML = '<p style="color: var(--text-secondary); padding: 24px; text-align: center;">No readings found. Check Grafana for data.</p>';
         return;
       }
 
@@ -161,27 +130,49 @@ const DashboardPage = {
 
   async autoCreateDashboards() {
     try {
-      // Get all measurements from InfluxDB
+      // Discover all measurements from InfluxDB
       const measurements = await API.listMeasurements();
-      const names = (measurements || [])
-        .map(m => m.name)
-        .filter(Boolean);
+      const names = (measurements || []).map(m => m.name).filter(Boolean);
 
       if (names.length === 0) {
         alert('No measurements found in InfluxDB yet. Publish some data first.');
         return;
       }
 
+      let created = 0;
       for (const name of names) {
         try {
-          await API.createDashboard(`IIoT: ${name}`, [name], [], []);
+          // Discover device/reading pairs for this measurement
+          const devices = await API.tagValues(name, 'device');
+          const deviceList = (devices || []).map(d => d.value).filter(Boolean);
+
+          // For each device, discover which readings actually exist
+          const deviceGroups = [];
+          for (const device of deviceList) {
+            const deviceReadings = await API.tagValuesFiltered(name, 'reading', 'device', device);
+            const readingList = (deviceReadings || []).map(r => r.value).filter(Boolean);
+            if (readingList.length > 0) {
+              deviceGroups.push({
+                device,
+                readings: readingList.map(key => ({ key, unit: '' })),
+              });
+            }
+          }
+
+          if (deviceGroups.length === 0) {
+            // Fallback: no devices found, create generic dashboard
+            deviceGroups.push({ device: name, readings: readingList.map(k => ({ key: k, unit: '' })) });
+          }
+
+          await API.createDashboardForMeasurement(`IIoT: ${name}`, name, deviceGroups);
           console.log(`Dashboard created for: ${name}`);
+          created++;
         } catch (err) {
           console.warn(`Dashboard for ${name}: ${err.message}`);
         }
       }
 
-      alert(`Created dashboards for ${names.length} measurements. Open Grafana to view them.`);
+      alert(`Created/updated ${created} dashboard(s). Open Grafana to view them.`);
       window.location.hash = '#grafana';
     } catch (err) {
       alert(`Failed: ${err.message}`);
@@ -189,4 +180,5 @@ const DashboardPage = {
   },
 };
 
+window.DashboardPage = DashboardPage;
 export default DashboardPage;

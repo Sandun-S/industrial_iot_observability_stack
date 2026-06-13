@@ -15,6 +15,7 @@ package main
 import (
 	"embed"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -77,12 +78,21 @@ func main() {
 	})
 	mux.HandleFunc("/api/grafana/datasource", grafanaHandler.EnsureDatasource())
 
-	// Docker service info (read-only via Docker socket)
+	// Docker service info
 	mux.HandleFunc("/api/services", func(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusOK, map[string]string{
 			"message": "Service management is available via the Docker socket.",
 			"hint":    "Use 'docker service ls' on the host or check the status endpoint.",
 		})
+	})
+
+	// Exporter proxy (forwards to to-postgres container API)
+	mux.HandleFunc("/api/exporter/config", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet || r.Method == http.MethodPost {
+			proxyToExporter(w, r)
+		} else {
+			respondMethodNotAllowed(w)
+		}
 	})
 
 	// ── Static files (embedded frontend) ───────────────────────────────────
@@ -96,6 +106,39 @@ func main() {
 	if err := http.ListenAndServe(":"+cfg.Port, handler); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+// proxyToExporter forwards requests to the to-postgres container (port 8089).
+func proxyToExporter(w http.ResponseWriter, r *http.Request) {
+	targetURL := "http://to-postgres:8089" + strings.TrimPrefix(r.URL.Path, "/api/exporter")
+	if r.URL.RawQuery != "" {
+		targetURL += "?" + r.URL.RawQuery
+	}
+
+	var body io.Reader
+	if r.Body != nil {
+		body = r.Body
+	}
+
+	proxyReq, err := http.NewRequest(r.Method, targetURL, body)
+	if err != nil {
+		http.Error(w, `{"error":"proxy error"}`, http.StatusBadGateway)
+		return
+	}
+	proxyReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(proxyReq)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte(`{"error":"exporter unreachable — is to-postgres container running?","url":"` + targetURL + `"}`))
+		return
+	}
+	defer resp.Body.Close()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 // ── Middleware ──────────────────────────────────────────────────────────────
